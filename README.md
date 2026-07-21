@@ -45,6 +45,3 @@ date, using allowance in the same way as `transferFrom()` when bond units must
 be burned. The payment is always sent to the holder, so this reproduces the
 familiar real-world bond experience in which cash is automatically credited to
 a brokerage account without giving the servicer custody of the proceeds.
-
-Note: `IBond.sol` imports `IERC20Minimal.sol` (a minimal ERC-20 interface it
-extends), so this file needs that sibling interface alongside it to compile.

@@ -1,16 +1,13 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.24;
 
 import {IERC20Minimal} from "./IERC20Minimal.sol";
 
 /// @title IBond
 /// @notice ERC-20-compatible principal-at-maturity bond interface.
-/// @dev `IBond` is issuance-model neutral. Implementations may use single
-/// issuance, subscriptions, auctions, reopenings, private placements, or
-/// external settlement adapters as long as issued units represent the same
-/// bond series terms. The interface does not require a standalone bond-unit
-/// cap view; implementations can derive their maximum units deterministically
-/// from `principalCap`, `denomination`, and the bond token's `decimals`.
+/// @dev Issued units are fungible claims on one set of bond terms. The maximum
+/// number of units is determined by `principalCap()`, `denomination()`, and the
+/// bond token's `decimals()`.
 interface IBond is IERC20Minimal {
     // -------------------------------------------------------------------------
     // Types
@@ -23,16 +20,14 @@ interface IBond is IERC20Minimal {
         /// after `issueDate` and maturity because it never becomes outstanding.
         Created,
         /// @notice The bond is outstanding and servicing before maturity.
-        /// @dev Reopenable variants may still allow additional issuance while live.
         Live,
         /// @notice The bond has reached its maturity date.
         Matured,
         /// @notice Redemption is open and issuer funding covers it, but holder claims remain open.
         Redeemable,
-        /// @notice All issued bond units have been redeemed, retired, or settled through an early-exit extension.
+        /// @notice No bond units remain outstanding and settlement is complete.
         Settled,
         /// @notice The bond or offering was terminated before final settlement.
-        /// @dev Examples include issuer abort, minimum raise not met, regulatory stop, or extension-defined termination.
         Terminated
     }
 
@@ -111,7 +106,6 @@ interface IBond is IERC20Minimal {
     function principalCap() external view returns (uint256);
 
     /// @notice Returns the timestamp when the bond first becomes outstanding or starts regular servicing.
-    /// @dev This is not necessarily the final issuance date for reopenable or tap-issued bonds.
     /// @return Initial issue or servicing-start timestamp.
     function issueDate() external view returns (uint64);
 
@@ -132,27 +126,23 @@ interface IBond is IERC20Minimal {
     function status() external view returns (PaymentStatus);
 
     /// @notice Returns the currently issued face principal owed by the issuer.
-    /// @dev Single-issuance implementations may become fixed after `issueDate`; reopenable implementations may increase
-    /// this value when additional fungible units of the same bond series are issued, while retirement and put
-    /// extensions may decrease it when units are permanently cancelled or settled outside scheduled redemption.
+    /// @dev This value changes when the amount of issued bond units changes.
     /// @return Principal amount denominated in the bond asset's units.
     function principal() external view returns (uint256);
 
-    /// @notice Returns bond token units still issued after permanent early exits.
-    /// @dev Cumulative for single-issuance bonds; retirement, conversion, and put extensions may reduce it when
-    /// units are permanently cancelled, exchanged into equity, or settled through a separate put pool. Those
-    /// exits are not counted as scheduled-redemption units.
+    /// @notice Returns bond token units currently counted as issued.
+    /// @dev Units redeemed through scheduled redemption remain part of this issuance total and are tracked
+    /// separately by `redeemedBondUnits()`.
     /// @return Issued bond token units.
     function issuedBondUnits() external view returns (uint256);
 
     /// @notice Returns cumulative bond token units redeemed and burned through scheduled redemption.
-    /// @dev Extensions that burn units through retirement or holder puts exclude them and expose separate totals.
     /// @return Redeemed bond token units.
     function redeemedBondUnits() external view returns (uint256);
 
     /// @notice Returns the face principal represented by one whole displayed bond token.
     /// @dev One whole token means `10 ** decimals()` bond token units. This is the bond's face denomination,
-    /// not a market price or subscription price.
+    /// not its market price or acquisition price.
     /// @return Face principal denomination in bond asset units.
     function denomination() external view returns (uint256);
 
@@ -183,19 +173,15 @@ interface IBond is IERC20Minimal {
     /// @return Cumulative holder-claimed amount.
     function amountHoldersClaimed() external view returns (uint256);
 
-    /// @notice Returns total principal due over the full life of the base bond.
-    /// @dev Coupon extensions may override this to include scheduled coupon cashflows.
+    /// @notice Returns the total bond-asset amount due over the bond's full life.
     /// @return Total due amount denominated in the bond asset's units.
     function totalDue() external view returns (uint256);
 
-    /// @notice Returns the amount currently outstanding under the bond's accounting model.
-    /// @dev For the base bond this is unfunded maturity principal. Coupon extensions may include accrued coupon amounts.
+    /// @notice Returns the bond-asset payment obligation that remains outstanding.
     /// @return Outstanding amount denominated in the bond asset's units.
     function amountOutstanding() external view returns (uint256);
 
     /// @notice Returns the bond asset currently claimable by a holder.
-    /// @dev For the base bond this is maturity principal claimable by burning the holder's bond units.
-    /// Coupon extensions may include coupon cash.
     /// @param holder Address whose claimable amount is queried.
     /// @return Claimable bond asset amount.
     function holderClaimable(address holder) external view returns (uint256);
@@ -205,9 +191,6 @@ interface IBond is IERC20Minimal {
     // -------------------------------------------------------------------------
 
     /// @notice Issues bond units under the implementation's issuance rules.
-    /// @dev Single-issuance implementations may only allow this before `issueDate`; reopenable implementations may allow
-    /// additional issuance after `issueDate`. Pricing, auctions, underwriting, DvP, and offchain allocation are outside
-    /// the core interface unless provided by an extension.
     /// @param bondUnits Amount of bond token units to issue.
     /// @param receiver Address receiving bond units.
     /// @return principalIssued Face principal represented by `bondUnits`.
@@ -225,15 +208,13 @@ interface IBond is IERC20Minimal {
     // Holder Claim And Redemption Actions
     // -------------------------------------------------------------------------
 
-    /// @notice Claims cash owed to the caller, routing to refund, extension claim, or maturity redemption.
+    /// @notice Claims bond asset currently owed to the caller.
     /// @param receiver Address receiving claimed bond asset.
     /// @return claimed Amount of bond asset transferred to `receiver`.
     function claim(address receiver) external returns (uint256 claimed);
 
-    /// @notice Claims cash owed to a holder, routing to refund, extension claim, or maturity redemption.
-    /// @dev When caller is not `holder`, ERC-20 allowance is required, token-burning claims spend allowance,
-    /// and the claim must pay `holder`. This permits an issuer or servicing agent to automate holder payouts
-    /// with `transferFrom`-style authorization, mirroring automatic payments into a brokerage account.
+    /// @notice Claims bond asset currently owed to a holder.
+    /// @dev The caller must satisfy the bond's delegated-claim authorization rules.
     /// @param holder Address whose claim is exercised.
     /// @param receiver Address receiving claimed bond asset.
     /// @return claimed Amount of bond asset transferred to `receiver`.
